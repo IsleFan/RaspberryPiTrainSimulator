@@ -56,15 +56,20 @@ class RS485HexSender:
 範例:
     python main.py log_Sample.txt
     python main.py --port /dev/ttyUSB1 --baudrate 115200 data.txt
+    python main.py --memory-efficient large_file.txt
     
 支援的HEX檔案格式:
     每行包含以空格分隔的十六進制數值
     範例: 60 01 13 20 01 01 00 00 1C
+    空白行分隔不同的數據塊
     
 延遲規則:
-    - "60 01 13 20" 開頭: 90ms延遲
+    - "60 01 13 20" 開頭: 1000ms延遲
     - "60 01 13 30" 開頭: 10ms延遲
     - 其他: 10ms延遲
+    
+記憶體模式:
+    --memory-efficient: 適合大型檔案，節省記憶體使用
             """
         )
         
@@ -96,6 +101,12 @@ class RS485HexSender:
             '--test', '-t',
             action='store_true',
             help='測試模式，不實際發送資料'
+        )
+        
+        parser.add_argument(
+            '--memory-efficient', '-m',
+            action='store_true',
+            help='記憶體效率模式，適合處理大型檔案'
         )
         
         return parser.parse_args()
@@ -189,25 +200,30 @@ class RS485HexSender:
             self.progress_display.show_cycle_complete
         )
     
-    def start_sending(self, hex_file: str, continuous: bool = True):
+    def start_sending(self, hex_file: str, continuous: bool = True, memory_efficient: bool = False):
         """
         開始發送HEX資料
         
         Args:
             hex_file: HEX檔案路徑
             continuous: 是否循環發送
+            memory_efficient: 是否使用記憶體效率模式
         """
         try:
             # 建立發送控制器
             self.sender_controller = SenderController(self.rs485_comm)
             
             # 載入HEX檔案
-            if not self.sender_controller.load_hex_file(hex_file):
+            if not self.sender_controller.load_hex_file(hex_file, memory_efficient):
                 return False
             
             # 顯示檔案資訊
-            data_count = len(self.sender_controller.hex_data)
+            status = self.sender_controller.get_status()
+            data_count = status['total_data_count']
+            mode_text = " (記憶體效率模式)" if memory_efficient else ""
             self.progress_display.show_file_info(hex_file, data_count)
+            if memory_efficient:
+                print(f"使用記憶體效率模式處理大型檔案{mode_text}")
             
             # 設定回調函數
             self.setup_callbacks()
@@ -275,7 +291,7 @@ class RS485HexSender:
             
             # 開始發送
             continuous = not args.single
-            success = self.start_sending(args.hex_file, continuous)
+            success = self.start_sending(args.hex_file, continuous, args.memory_efficient)
             
             return 0 if success else 1
             

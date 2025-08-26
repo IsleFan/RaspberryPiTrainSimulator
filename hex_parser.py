@@ -15,32 +15,49 @@ class HexParser:
     def parse_file(self) -> List[Tuple[bytes, int]]:
         """
         解析HEX檔案並返回 (資料bytes, 延遲毫秒) 的列表
+        空白行作為資料分隔符，非空行的資料會連續合併
         
         Returns:
             List[Tuple[bytes, int]]: [(hex_bytes, delay_ms), ...]
         """
+        self.hex_data = []
+        for hex_bytes, delay_ms in self.parse_file_generator():
+            self.hex_data.append((hex_bytes, delay_ms))
+        return self.hex_data
+    
+    def parse_file_generator(self):
+        """
+        記憶體效率版本：逐行讀取，使用generator避免載入整個檔案
+        
+        Yields:
+            Tuple[bytes, int]: (hex_bytes, delay_ms)
+        """
         try:
             with open(self.filename, 'r', encoding='utf-8') as file:
-                lines = file.readlines()
+                current_hex_block = ""
                 
-            self.hex_data = []
-            
-            for line_num, line in enumerate(lines, 1):
-                line = line.strip()
+                for line in file:
+                    line = line.strip()
+                    
+                    # 遇到空行，處理當前累積的資料塊
+                    if not line:
+                        if current_hex_block:
+                            hex_bytes = self._parse_hex_line(current_hex_block)
+                            if hex_bytes:
+                                delay_ms = self._get_delay_time(hex_bytes)
+                                yield (hex_bytes, delay_ms)
+                            current_hex_block = ""
+                    else:
+                        # 非空行，累積到當前資料塊
+                        current_hex_block += " " + line if current_hex_block else line
                 
-                # 跳過空行
-                if not line:
-                    continue
-                    
-                # 解析HEX字串
-                hex_bytes = self._parse_hex_line(line)
-                if hex_bytes:
-                    # 判斷延遲時間
-                    delay_ms = self._get_delay_time(hex_bytes)
-                    self.hex_data.append((hex_bytes, delay_ms))
-                    
-            return self.hex_data
-            
+                # 處理最後一個資料塊（如果檔案結尾沒有空行）
+                if current_hex_block:
+                    hex_bytes = self._parse_hex_line(current_hex_block)
+                    if hex_bytes:
+                        delay_ms = self._get_delay_time(hex_bytes)
+                        yield (hex_bytes, delay_ms)
+                        
         except FileNotFoundError:
             raise FileNotFoundError(f"找不到檔案: {self.filename}")
         except Exception as e:
@@ -87,7 +104,7 @@ class HexParser:
         header = hex_bytes[:4]
         
         if header == b'\x60\x01\x13\x20':  # "60 01 13 20"
-            return 90
+            return 1000
         elif header == b'\x60\x01\x13\x30':  # "60 01 13 30"
             return 10
         else:
